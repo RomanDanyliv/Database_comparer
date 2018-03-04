@@ -1,0 +1,6 @@
+.vs
+bin
+obj
+*.ldf
+*.mdf
+TestResults
