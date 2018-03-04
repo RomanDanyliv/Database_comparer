@@ -20,4 +20,11 @@ namespace Comparer.Models
             : base(options)
         { }
     }
+    public class ONEEEEEMORREEE: DbContext
+    {
+        public DbSet<FileModel> Files { get; set; }
+        public ApplicationContext(DbContextOptions<ApplicationContext> options)
+            : base(options)
+        { }
+    }
 }
