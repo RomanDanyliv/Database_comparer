@@ -163,9 +163,10 @@ namespace DbComparer
         {
             try
             {
-                DataConnectionString = "Data Source=.; Integrated Security=True; Initial Catalog =" + databaseName + ";";
-                connection = new SqlConnection(DataConnectionString);
-                connection.Open();
+                sdjfhksdjhfkjsdhfkjsdhfkjsdhfjkshdfkjshdfkjshd
+sdfhsdjkfhjksdhfkjsdhfkjshdfjkhsd
+sdfhjkshfksjdfhksjdh
+sdfshdkfjhsdkjfhskdj
             }
             catch (Exception EX_NAME)
             {
