@@ -163,9 +163,7 @@ namespace DbComparer
         {
             try
             {
-                sdjfhksdjhfkjsdhfkjsdhfkjsdhfjkshdfkjshdfkjshd
-sdfhsdjkfhjksdhfkjsdhfkjshdfjkhsd
-sdfhjkshfksjdfhksjdh
+                sdjfhksdj
 sdfshdkfjhsdkjfhskdj
             }
             catch (Exception EX_NAME)
