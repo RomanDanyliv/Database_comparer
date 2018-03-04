@@ -4,7 +4,7 @@ using System.Data;
 
 
 
-namespace DbComparer
+namespace DbComparer1
 
 {
 
