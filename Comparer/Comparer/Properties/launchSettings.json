@@ -2,6 +2,10 @@
   "iisSettings": {
     "windowsAuthentication": false,
     "anonymousAuthentication": true,
+    "iis": {
+      "applicationUrl": "http://localhost/Comparer",
+      "sslPort": 0
+    },
     "iisExpress": {
       "applicationUrl": "http://localhost:2539/",
       "sslPort": 0

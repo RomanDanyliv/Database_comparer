@@ -293,5 +293,3 @@ obj
 *.ldf
 *.mdf
 TestResults
-CoreFunctionsTesting
-*.orig

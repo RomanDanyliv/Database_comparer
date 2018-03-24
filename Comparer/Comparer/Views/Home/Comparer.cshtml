@@ -4,9 +4,19 @@
     ViewBag.Title = "Comparer";
 }
 
-<h2>@ViewData["Title"]</h2>
-
 <div class="container-fluid" id="Partial">
+
     @Html.Partial("_DownloadFiles",Model);
+
 </div>
+
+<script>
+    window.onbeforeunload = function () {
+        $.ajax({
+            url: "PageClosedAction",
+            type: "POST",
+            data: { page: "Comparer"}
+        });
+    };
+</script>
 

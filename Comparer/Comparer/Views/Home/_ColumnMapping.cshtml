@@ -1,98 +1,142 @@
 ﻿@using System.Data
+@using DbComparer
 @model DBTest.DatabaseComparer
 
-@{
-    ViewBag.Title = "title";
-    Layout = "_Layout";
-}
-
+<link rel="stylesheet" href="~/css/PartialViewCss/ColumnMapping.css" />
 <div class="row">
-    <div class="col-md-5">
+    <div class="col-md-6">
         <h1>@Model.FirstDatabase.SelectedTable</h1>
-        @{
-            DataRowCollection drc1 = Model.FirstDatabase.GetTableInfo(Model.FirstDatabase.SelectedTable).Rows;
-            <table class="table table-bordered table-responsive table-striped">
-                @foreach (DataRow item in drc1)
-                {
-                    <tr>
-                        <td>@item.ItemArray[3]</td>
-                        <td>@item.ItemArray[7]</td>
-                        <td>@item.ItemArray[8]</td>
-                    </tr>
-                }
-            </table>
-        }
+        <ol class="vertical">
+            @foreach (Database.Column item in Model.FirstDatabase.TableColumns)
+            {
+                <li class="" style="">
+                    <table class="table table-bordered" id="source">
+                        <tbody>
+                            <tr>
+                                <td style="text-align: -webkit-center">
+                                    @if (@item.ISKey)
+                                    {
+                                        <img class="img-responsive" src="/images/icons8-key.svg" />
+                                    }
+                                </td>
+                                <td>@item.Name</td>
+                                <td>@item.Type</td>
+                                <td class="arrow_box">@item.Length</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </li>
+            }
+        </ol>
     </div>
-    <div class="col-md-2 arrow-bloc">
-        <div class="arrowup"></div>
-        <div class="arrowdown"></div>
-    </div>
-    <div class="col-md-5 item-list">
+    <div class="col-md-6">
         <h1>@Model.SecondDatabase.SelectedTable</h1>
-        @{
-            DataRowCollection drc2 = Model.SecondDatabase.GetTableInfo(Model.SecondDatabase.SelectedTable).Rows;
-            <table class="table table-bordered table-responsive table-striped drag">
-                @foreach (DataRow item in drc2)
-                {
-                    <tr class="choosed-item">
-                        <td>@item.ItemArray[3]</td>
-                        <td>@item.ItemArray[7]</td>
-                        <td>@item.ItemArray[8]</td>
-                    </tr>
-                }
-            </table>
-        }
+        <ol class="ol-drag vertical">
+            @foreach (Database.Column item in Model.SecondDatabase.TableColumns)
+            {
+                <li class="" style="">
+                    <table class="table table-bordered" id="target">
+                        <tbody>
+                            <tr>
+                                <td style="text-align: -webkit-center">
+                                    @if (@item.ISKey)
+                                    {
+                                        <img class="img-responsive" src="/images/icons8-key.svg" />
+                                    }
+                                </td>
+                                <td>@item.Name</td>
+                                <td>@item.Type</td>
+                                <td>@item.Length</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </li>
+            }
+        </ol>
     </div>
+    <button type="button" class="btn-lg btn-block btn-primary-custom" id="GoToComparing">NEXT STEP</button>
+    <button type="button" class="btn-lg btn-block btn-default-custom" id="GoTableInfo" style="margin-bottom:1.5vmin;">Step back</button>
 </div>
 
 
+<script src="~/js/Sortable.js"></script>
 <script>
+    function ValidateTypes() {
+        var source_list = [];
+        var target_list = [];
+        source_list = $("table#source").find("tr").toArray();
+        target_list = $("table#target").find("tr").toArray();
+        for (var i = 0; i < source_list.length; i++) {
+            if (i >= target_list.length) {
+                $(source_list[i].cells[3]).addClass("block");
+                continue;
+            }
+            if (source_list[i].cells[2].innerText != target_list[i].cells[2].innerText) {
+                $(source_list[i].cells[3]).addClass("bad");
+            } else {
+                $(source_list[i].cells[3]).removeClass("bad");
+            }
+        }
+    }
+
     $(function () {
-        $('div.item-list').not('.disabled').find('tr.choosed-item').on('click', function () {
-            $(this).parent().parent().find('tr.choosed-item').removeClass('selected');
-            $(this).addClass('selected');
-        });
+        ValidateTypes();
+    })
+    var adjustment;
+
+    $("ol.ol-drag").sortable({
+        group: 'ol-drag',
+        pullPlaceholder: false,
+        // animation on drop
+        onDrop: function ($item, container, _super) {
+            var $clonedItem = $('<li/>').css({ height: 0 });
+            $item.before($clonedItem);
+            $clonedItem.animate({ 'height': $item.height() }, 0);
+            $item.animate($clonedItem.position(), 0,
+                function () {
+                    $clonedItem.detach();
+                    _super($item, container);
+                    console.log($("ol").find("li"));
+                });
+            ValidateTypes();
+        },
+
+        // set $item relative to cursor position
+        onDragStart: function ($item, container, _super) {
+            var offset = $item.offset(),
+                pointer = container.rootGroup.pointer;
+
+            adjustment = {
+                left: pointer.left - offset.left,
+                top: pointer.top - offset.top
+            };
+
+            _super($item, container);
+        },
+        onDrag: function ($item, position) {
+            $item.css({
+                left: position.left - adjustment.left,
+                top: position.top - adjustment.top
+            });
+        }
     });
 
-    (function ($) {
-        $.fn.extend({
-            tableAddCounter: function (options) {
 
-                // set up default options
-                var defaults = {
-                    title: '#',
-                    start: 1,
-                    id: false,
-                    cssClass: false
-                };
-
-                // Overwrite default options with user provided
-                var options = $.extend({}, defaults, options);
-
-                return $(this).each(function () {
-                    // Make sure this is a table tag
-                    if ($(this).is('.drag')) {
-
-                        // Add column title unless set to 'false'
-                        if (!options.title) options.title = '';
-                        $('th:first-child, thead td:first-child', this).each(function () {
-                            var tagName = $(this).prop('tagName');
-                            $(this).before('<' + tagName + ' rowspan="' + $('thead tr').length + '" class="' + options.cssClass + '" id="' + options.id + '">' + options.title + '</' + tagName + '>');
-                        });
-
-                        // Add counter starting counter from 'start'
-                        $('tbody td:first-child', this).each(function (i) {
-                            $(this).before('<td>' + (options.start + i) + '</td>');
-                        });
-
-                    }
-                });
+    $("#GoToComparing").click(function () {
+        var list = [];
+        var array = [];
+        list = $("table#target").find("tr").toArray();
+        list.forEach(function (item, i) {
+            array.push(item.cells[1].innerText);
+        });
+        console.log(array);
+        $.ajax({
+            url: "Comparing",
+            type: "POST",
+            data: { array: array },
+            success: function (result) {
+                $("#Partial").html(result);
             }
         });
-    })(jQuery);
-
-    $(document).ready(function () {
-        $('.table').tableAddCounter();
-        $.getScript("http://code.jquery.com/ui/1.9.2/jquery-ui.js").done(function (script, textStatus) { $('tbody').sortable(); $(".alert-info").alert('close'); $(".alert-success").show(); });
-    });
+    })
 </script>

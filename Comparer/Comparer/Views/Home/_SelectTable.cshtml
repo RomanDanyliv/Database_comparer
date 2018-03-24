@@ -9,8 +9,8 @@
     @{
         Database db1 = Model.FirstDatabase;
         Database db2 = Model.SecondDatabase;
-        List<string> list1 = db1.GetTablesList("TeamBuilding");
-        List<string> list2 = db2.GetTablesList("TeamBuilding");
+        List<string> list1 = db1.GetTablesList();
+        List<string> list2 = db2.GetTablesList();
     }
     <div class="row">
         <div class="col-md-6">
@@ -47,9 +47,16 @@
 
     <script>
         $("#NextStep").click(function () {
+
+            var list = [];
+            var array = [];
+            list = $("table.drag").find("tr").toArray();
+            list.forEach(function (item, i) {
+            array.push(item.cells[0].innerText);
+
             $.ajax({
                 url: "Comparing",
-                type: "get",
+                type: "POST",
                 success: function (result) {
                     $("#Partial").html(result);
                 }
