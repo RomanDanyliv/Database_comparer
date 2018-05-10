@@ -3,6 +3,7 @@
 @{
     ViewBag.Title = "Comparer";
 }
+<script src="~/js/Loading.js"></script>
 
 <div class="container-fluid" id="Partial">
 
@@ -13,6 +14,7 @@
 <script>
     window.onbeforeunload = function () {
         $.ajax({
+            async: true, 
             url: "PageClosedAction",
             type: "POST",
             data: { page: "Comparer"}

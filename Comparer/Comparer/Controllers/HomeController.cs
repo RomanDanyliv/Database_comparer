@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Net.Http.Headers;
+using Microsoft.EntityFrameworkCore.Internal;
 
 namespace Comparer.Controllers
 {
@@ -80,6 +81,7 @@ namespace Comparer.Controllers
         [HttpPost]
         public IActionResult FilesDownloaded()
         {
+            CleanNotUsedData(1);
             return PartialView("_DownloadFiles", db);
         }
 
@@ -90,8 +92,8 @@ namespace Comparer.Controllers
             try
             {
                 if ((db.FirstDatabase.connection == null || db.FirstDatabase.connection.State != ConnectionState.Open) ||
-            (db.SecondDatabase.connection == null || db.SecondDatabase.connection.State != ConnectionState.Open))
-                return PartialView("_Error");
+                    (db.SecondDatabase.connection == null || db.SecondDatabase.connection.State != ConnectionState.Open))
+                    return PartialView("_Error");
                 return PartialView("_TableInfo", db);
             }
             catch (Exception ex)
@@ -99,33 +101,41 @@ namespace Comparer.Controllers
                 return PartialView("_Error", ex);
             }
         }
+
         [HttpPost]
         public IActionResult ColumnMapping(string[] array = null)
         {
-            try
+            CleanNotUsedData(3);
+            if (array.Length < 1)
             {
-                if (array == null || array.Length < 2)
-                    array = new[] { "Projects", "Users" };
-                db.FirstDatabase.SelectedTable = array[0];
-                db.SecondDatabase.SelectedTable = array[1];
-                if ((db.FirstDatabase.connection == null || db.FirstDatabase.connection.State != ConnectionState.Open) ||
-                    (db.SecondDatabase.connection == null || db.SecondDatabase.connection.State != ConnectionState.Open))
+                if (db.FirstDatabase.SelectedTable == null || db.SecondDatabase.SelectedTable == null)
                     return PartialView("_Error");
-                if (db.FirstDatabase.SelectedTable == "" || db.SecondDatabase.SelectedTable == "")
-                    return PartialView("_Error");
-                db.FirstDatabase.GetTableInfo();
-                db.SecondDatabase.GetTableInfo();
-                return PartialView("_ColumnMapping", db);
+                array = new string[2];
+                array[0] = db.FirstDatabase.SelectedTable;
+                array[1] = db.SecondDatabase.SelectedTable;
             }
-            catch (Exception ex)
+            db.FirstDatabase.SelectedTable = array[0];
+            db.SecondDatabase.SelectedTable = array[1];
+            if ((db.FirstDatabase == null ||
+                 db.FirstDatabase.connection == null ||
+                 db.FirstDatabase.connection.State != ConnectionState.Open) ||
+                (db.SecondDatabase == null ||
+                 db.SecondDatabase.connection == null ||
+                 db.SecondDatabase.connection.State != ConnectionState.Open))
             {
-                return PartialView("_Error", ex);
-            }          
+                return PartialView("_Error");
+            }
+            if (db.FirstDatabase.SelectedTable == "" || db.SecondDatabase.SelectedTable == "")
+                return PartialView("_Error");
+            db.FirstDatabase.GetTableInfo();
+            db.SecondDatabase.GetTableInfo();
+            return PartialView("_ColumnMapping", db);
         }
 
         [HttpPost]
         public IActionResult Comparing(string[] array)
         {
+            CleanNotUsedData(4);
             if (array.Length == 0)
                 return PartialView("_Error");
             db.FirstDatabase.SelectedColumns.Clear();
@@ -133,11 +143,11 @@ namespace Comparer.Controllers
             int min = Math.Min(db.FirstDatabase.TableColumns.Count, db.SecondDatabase.TableColumns.Count);
             for (int i = 0; i < min; i++)
             {
-                db.FirstDatabase.SelectedColumns.Add(db.FirstDatabase.TableColumns[i].Name);
+                db.FirstDatabase.SelectedColumns.Add(db.FirstDatabase.TableColumns[i]);
                 foreach (var column in db.SecondDatabase.TableColumns)
                 {
-                    if (column.Name == array[i] && column.Type== db.FirstDatabase.TableColumns[i].Type)
-                        db.SecondDatabase.SelectedColumns.Add(array[i]);
+                    if (column.Name == array[i] && AdditionalFunctions.IsTypesComparable(column.Type, db.FirstDatabase.TableColumns[i].Type))
+                        db.SecondDatabase.SelectedColumns.Add(column);
                 }
             }
             if (db.FirstDatabase.SelectedColumns.Count !=
@@ -187,7 +197,7 @@ namespace Comparer.Controllers
                         await file.CopyToAsync(fileStream);
                     }
                     Database dbase = Database.InitializeType(file);
-                    var a=dbase.ConnectToFile(path);
+                    var a = dbase.ConnectToFile(path);
                     dbase.FileName = Path.GetFileNameWithoutExtension(file.FileName);
                     switch (id)
                     {
@@ -225,22 +235,68 @@ namespace Comparer.Controllers
             return false;
         }
 
+
+        [HttpPost]
+        public bool RemoteAccess(string[] attr)
+        {
+            string DbType = attr[0];
+            string IP = attr[0];
+            string Port = attr[0];
+            Database dbase = Database.InitializeType(DbType);
+            return false;
+        }
+
+        public void CleanNotUsedData(int i)
+        {
+            switch (i)
+            {
+                case 1:
+                    {
+                        db = new DatabaseComparer();
+                        PageClosedAction("");
+                        break;
+                    }
+                case 2:
+                    {
+                        db.FirstDatabase.SelectedTable = null;
+                        db.SecondDatabase.SelectedTable = null;
+                        break;
+                    }
+                case 3:
+                    {
+                        db.FirstDatabase.TableColumns.Clear();
+                        db.SecondDatabase.TableColumns.Clear();
+                        db.FirstDatabase.SelectedColumns.Clear();
+                        db.SecondDatabase.SelectedColumns.Clear();
+                        break;
+                    }
+                case 4:
+                    {
+                        db.ComparingResult.Clear();
+                        db.FirstData = null;
+                        db.SecondData = null;
+                        db.AdditionalInfo = null;
+                        break;
+                    }
+            }
+        }
+
         [HttpPost]
         public void PageClosedAction(string page)
         {
-            if (db.Folder!=null)
+            if (db.Folder != null)
             {
                 try
                 {
                     int sleepTimer = 100;
                     bool conClosed = db.CloseConnection();
-                    for (int i = 0; i < 20 && !conClosed; i++)
+                    for (int i = 0; (i < 20) && !conClosed; i++)
                     {
-                        Thread.Sleep(sleepTimer+(i*100));
+                        Thread.Sleep(sleepTimer + (i * 100));
                         conClosed = db.CloseConnection();
                     }
                     bool folderDeleted = db.DeleteActiveFolder();
-                    for (int i = 0; i < 20 && !folderDeleted; i++)
+                    for (int i = 0; (i < 20) && !folderDeleted; i++)
                     {
                         Thread.Sleep(sleepTimer + (i * 100));
                         folderDeleted = db.DeleteActiveFolder();
@@ -252,6 +308,36 @@ namespace Comparer.Controllers
                     throw;
                 }
             }
+        }
+
+        [HttpPost]
+        public JsonResult CreateScript(int id, string[] arrayN, string[] arrayU = null)
+        {
+            string[] Insert=null, Update=null;
+            switch (id)
+            {
+                case 1:
+                    {
+                        Update = db.SecondDatabase.BuildUpdate(db.ComparingResult[2], db.ComparingResult[1], arrayN);
+                        Insert = db.SecondDatabase.BuildInsert(db.ComparingResult[3], arrayU);
+                        break;
+                    }
+                case 2:
+                    {
+                        Update = db.SecondDatabase.BuildUpdate(db.ComparingResult[2], db.ComparingResult[1], arrayN);
+                        Insert = db.FirstDatabase.BuildUpdate(db.ComparingResult[1], db.ComparingResult[2], arrayN);
+                        break;
+                    }
+                case 3:
+                    {
+                        Update = db.FirstDatabase.BuildUpdate(db.ComparingResult[1], db.ComparingResult[2], arrayN);
+                        Insert = db.FirstDatabase.BuildInsert(db.ComparingResult[4], arrayU);
+                        break;
+                    }
+            }
+
+            var ForReturn = new {Insert = Insert.Join("\n"), Update = Update.Join("\n")};
+            return Json(ForReturn);
         }
         #endregion
     }

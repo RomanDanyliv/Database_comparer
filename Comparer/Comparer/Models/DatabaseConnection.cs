@@ -8,11 +8,19 @@ using System.Data.SqlClient;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using Comparer.Models;
 using DBTest;
 using Jdforsythe.MySQLConnection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.EntityFrameworkCore.Query.Expressions;
 using MySql.Data.MySqlClient;
 using ObjectsComparer;
@@ -25,14 +33,14 @@ namespace DbComparer
         /// Підключення до сервера
         /// </summary>
         /// <returns>True якщо підключення встановлено</returns>
-        bool ConnectToServer();
+        bool ConnectToServer(int port = Int32.MinValue);
 
         /// <summary>
         /// Підключення до конктретної бази даних на сервері
         /// </summary>
         /// <param name="databaseName">Ім'я бази даних</param>
         /// <returns>True якщо підключення встановлено</returns>
-        bool ConnectToDatabase(string databaseName);
+        bool ConnectToDatabase(string databaseName, int port = Int32.MinValue);
 
         /// <summary>
         /// Підключення до файлу бази данних
@@ -40,6 +48,15 @@ namespace DbComparer
         /// <param name="location">Шлях до файлу. Якщо не заданий - заново відкривається підключення</param>
         /// <returns>True, якщо підключення встановлено</returns>
         bool ConnectToFile(string location = null);
+
+        /// <summary>
+        /// Віддалене підключення
+        /// </summary>
+        /// <param name="ip">IP</param>
+        /// <param name="port">Порт</param>
+        /// <param name="db">Назва БД (за потребою)</param>
+        /// <returns></returns>
+        bool RemoteConnection(string ip, string port, string db = null);
 
         /// <summary>
         /// Повертає список баз даних на сервері
@@ -95,11 +112,14 @@ namespace DbComparer
             SelectedDatabase = null;
             connection = null;
             TableColumns = new List<Column>();
-            SelectedColumns = new List<string>();
+            SelectedColumns = new List<Column>();
             FileName = null;
         }
-
+        /// <summary>
+        /// Назва файлу
+        /// </summary>        
         public string FileName;
+
         /// <summary>
         /// Рядок підключення
         /// </summary>
@@ -128,7 +148,7 @@ namespace DbComparer
         /// <summary>
         /// Колонки, обрані для порівняння
         /// </summary>
-        public List<string> SelectedColumns;
+        public List<Column> SelectedColumns;
 
         /// <summary>
         /// Селектор
@@ -165,9 +185,15 @@ namespace DbComparer
         /// </summary>
         public Database_Type DbType;
 
-        public abstract bool ConnectToServer();
-        public abstract bool ConnectToDatabase(string databaseName);
+        /// <summary>
+        /// Вид активного підключення 
+        /// </summary>
+        public Connection_Type ConType;
+
+        public abstract bool ConnectToServer(int port = Int32.MinValue);
+        public abstract bool ConnectToDatabase(string databaseName, int port = Int32.MinValue);
         public abstract bool ConnectToFile(string location = null);
+        public abstract bool RemoteConnection(string ip, string port, string db = null);
         public abstract List<string> GetDatabasesList();
         public abstract List<string> GetTablesList(string database = null);
         public abstract DataTable GetTableInfo(string tableName = null);
@@ -185,11 +211,93 @@ namespace DbComparer
             string Select = "SELECT ";
             foreach (var item in SelectedColumns)
             {
-                Select += item + ", ";
+                Select += item.Name + ", ";
             }
             Select = Select.Remove(Select.Length - 2, 2);
             Select += " FROM " + ((table == null) ? SelectedTable : table);
             return Select;
+            /*
+             INSERT INTO table_name (column1, column2, column3, ...)
+             VALUES (value1, value2, value3, ...);
+             */
+        }
+
+        /// <summary>
+        /// Створює запит на додавання даних
+        /// </summary>
+        /// <param name="stringses">собсно, по яких даних будувати запит</param>
+        /// <returns></returns>
+        public string[] BuildInsert(List<string[]> stringses, string[] selected)
+        {
+            string[] Result = new string[selected.Length];
+            int[] arr = selected.Select(i => Int32.Parse(i)).ToArray();
+            string columns = "(" + SelectedColumns.Select(i => i.Name).Join(",") + ")";
+            for (int i = 0; i < selected.Length; i++)
+            {
+                string Insert = "INSERT INTO "
+                                + SelectedTable
+                                + columns
+                                + " VALUES(";
+                for (int j = 0; j < SelectedColumns.Count; j++)
+                {
+                    if (SelectedColumns[j].Type != "int")
+                        Insert += "'" + stringses[arr[i]][j] + "',";
+                    else Insert += stringses[arr[i]][j] + ",";
+                }
+                Insert = Insert.Remove(Insert.Length - 1, 1);
+                Insert += ");";
+                Result[i] = Insert;
+            }
+            return Result;
+        }
+
+        /// <summary>
+        /// Створює запит(и) на оновлення даних в таблиці 
+        /// </summary>
+        /// <param name="stringsTo">Куда</param>
+        /// <param name="stringsFrom">Звідки</param>
+        /// <returns>масівчик</returns>
+        public string[] BuildUpdate(List<string[]> stringsTo, List<string[]> stringsFrom, string[] selected)
+        {
+            string[] Result = new string[selected.Length];
+            int[] arr = selected.Select(i => Int32.Parse(i)).ToArray();
+            for (int i = 0; i < selected.Length; i++)
+            {
+                string Update = "UPDATE "
+                                + SelectedTable
+                                + " SET "
+                                + SelectedColumns[0].Name
+                                + "=";
+                if (SelectedColumns[0].Type != "int")
+                    Update += "'" + stringsFrom[arr[i]][0] + "' ";
+                else Update += stringsFrom[arr[i]][0] + " ";
+                for (int j = 1; j < SelectedColumns.Count; j++)
+                {
+                    if (SelectedColumns[j].Type != "int")
+                        Update += ", " + SelectedColumns[j].Name + "='" + stringsFrom[arr[i]][j] + "'";
+                    else Update += ", " + SelectedColumns[j].Name + "=" + stringsFrom[arr[i]][j];
+                }
+                Update += " WHERE "
+                        + SelectedColumns[0].Name
+                        + "=";
+                if (SelectedColumns[0].Type != "int")
+                    Update += "'" + stringsTo[arr[i]][0] + "' ";
+                else Update += stringsTo[arr[i]][0] + " ";
+                for (int j = 1; j < SelectedColumns.Count; j++)
+                {
+                    if (SelectedColumns[j].Type != "int")
+                        Update += ", " + SelectedColumns[j].Name + "='" + stringsTo[arr[i]][j] + "'";
+                    else Update += ", " + SelectedColumns[j].Name + "=" + stringsTo[arr[i]][j];
+                }
+                Update += ";";
+                Result[i] = Update;
+            }
+            return Result;
+            /*
+                UPDATE table_name
+                SET column1 = value1, column2 = value2, ...
+                WHERE condition;
+             */
         }
 
         /// <summary>
@@ -245,6 +353,27 @@ namespace DbComparer
         }
 
         /// <summary>
+        /// Визначає тип БД та виконує присвоєння
+        /// </summary>
+        /// <param name="file"></param>
+        /// <returns></returns>
+        public static Database InitializeType(string type)
+        {
+            switch (type)
+            {
+                case "MySQL":
+                    { return new MySqlDataBaseConnector() { DbType = Database_Type.MySql }; break; }
+                case "SQL Server":
+                    { return new SqlDataBaseConnector() { DbType = Database_Type.SqlServer }; ; break; }
+                default:
+                    {
+                        return null;
+                        break;
+                    }
+            }
+        }
+
+        /// <summary>
         /// Можливі типи БД
         /// </summary>
         public enum Database_Type
@@ -254,6 +383,14 @@ namespace DbComparer
             Oracle,
             XML,
             NONE
+        }
+
+        /// <summary>
+        /// Види підключення
+        /// </summary>
+        public enum Connection_Type
+        {
+            File, Remote, Server
         }
 
         /// <summary>
@@ -279,7 +416,9 @@ namespace DbComparer
                 Name = array[3].ToString();//Імя
                 Type = array[7].ToString();//Тип
                 Length = array[8].ToString();//Довжина
-                ISKey = false;//Ключ
+                if (array[15] != "PRI")
+                    ISKey = false; //Ключ
+                else ISKey = true;
             }
         }
     }
@@ -291,7 +430,8 @@ namespace DbComparer
             DataConnectionString = "Data Source=.; Integrated Security=True;";
         }
 
-        public override bool ConnectToServer()
+
+        public override bool ConnectToServer(int port = Int32.MinValue)
         {
             try
             {
@@ -306,7 +446,7 @@ namespace DbComparer
             return true;
         }
 
-        public override bool ConnectToDatabase(string databaseName)
+        public override bool ConnectToDatabase(string databaseName, int port = Int32.MinValue)
         {
             try
             {
@@ -330,7 +470,24 @@ namespace DbComparer
                 if (location != null)
                     DataConnectionString =
                         "Data Source=(localdb)\\MSSQLLocalDB;AttachDbFilename=" + location +
-                        ";Integrated Security=True;Connect Timeout=30;Encrypt=False;TrustServerCertificate=True;ApplicationIntent=ReadWrite;MultiSubnetFailover=False;";
+                        ";Integrated Security=True;Connect Timeout=30;";
+                connection = new SqlConnection(DataConnectionString);
+                connection.Open();
+                ConType = Connection_Type.File;
+                return true;
+            }
+            catch (Exception e)
+            {
+                return false;
+            }
+        }
+
+        public override bool RemoteConnection(string ip, string port, string db = null)
+        {
+            try
+            {
+                DataConnectionString =
+                    $"Data Source={ip}\\SQLEXPRESS,{port};Network Library=DBMSSOCN;User ID=sa;Password=password";
                 connection = new SqlConnection(DataConnectionString);
                 connection.Open();
                 return true;
@@ -451,109 +608,46 @@ namespace DbComparer
                 SqlConnection.ClearPool(connection as SqlConnection);
             }
         }
-
-        public void Test()
-        {
-            DataTable dtMaths = new DataTable("Maths");
-            var a = typeof(int);
-            dtMaths.Columns.Add("StudID1", typeof(string));
-            dtMaths.Columns.Add("StudName1", typeof(string));
-            dtMaths.Columns.Add("Fuck1", typeof(string));
-            dtMaths.Rows.Add(1, "Mike", "Fuck");
-            dtMaths.Rows.Add(2, "Mukesh", "Fuck");
-            dtMaths.Rows.Add(3, "Erin", "Fuck");
-            dtMaths.Rows.Add(4, "Roshni", "Fuck");
-            dtMaths.Rows.Add(5, "Ajay", "Fuck");
-
-            DataTable dtEnglish = new DataTable("English");
-            dtEnglish.Columns.Add("StudID", typeof(string));
-            dtEnglish.Columns.Add("StudName", typeof(string));
-            dtEnglish.Columns.Add("Fuck", typeof(string));
-            dtEnglish.Rows.Add(6, "Arjun", "Fuck");
-            dtEnglish.Rows.Add(2, "Mukesh", "Fuck");
-            dtEnglish.Rows.Add(7, "John", "Fuck");
-            dtEnglish.Rows.Add(4, "Roshni", "Fuck");
-            dtEnglish.Rows.Add(8, "Kumar", "Fuck");
-
-            var d1 = dtMaths.Rows.Cast<DataRow>().Select(i => i.ItemArray).ToArray();
-            var d2 = dtEnglish.Rows.Cast<DataRow>().Select(i => i.ItemArray).ToArray();
-            var d11 = new string[3][]
-                {new string[3] {"1", "2", "4"}, new string[3] {"1", "2", "3"}, new string[3] {"1", "2", "0"}};
-            var d22 = new string[3][]
-                {new string[3] {"1", "2", "4"}, new string[3] {"1", "2", "5"}, new string[3] {"1", "2", "6"}};
-
-            SqlDataBaseConnector sql = new SqlDataBaseConnector();
-            var c1 = sql.ConnectToServer();
-            var c2 = sql.ConnectToDatabase("Repair");
-            sql.SelectedTable = "NewEmployees";
-            sql.GetTableInfo("NewEmployees");
-            foreach (var item in sql.TableColumns)
-            {
-                sql.SelectedColumns.Add(item.Name);
-            }
-
-            SqlDataBaseConnector sql2 = new SqlDataBaseConnector();
-            var c12 = sql2.ConnectToServer();
-            var c22 = sql2.ConnectToDatabase("Repair");
-            sql2.SelectedTable = "NewEmployees2";
-            sql2.GetTableInfo();
-            foreach (var item in sql2.TableColumns)
-            {
-                sql2.SelectedColumns.Add(item.Name);
-            }
-            Stopwatch sw1 = new Stopwatch();
-            Stopwatch sw2 = new Stopwatch();
-            sw1.Start();
-            IEnumerable<string[]> table1 = null, table2 = null;
-            var table11 = new Task(() => { table1 = sql.Read(sql.BuildSelectQuery(), FullStringArraySelector); });
-            table11.Start();
-            var table22 = new Task(() => { table2 = sql2.Read(sql2.BuildSelectQuery(), FullStringArraySelector); });
-            sw1.Stop();
-            table22.Start();
-            Task.WaitAll(table11, table22);
-            sw2.Start();
-            var dasda = table1.Except(table2, new StringArrayComparer());
-            sw2.Stop();
-            System.Console.WriteLine(1);
-            //            IQueryable<DataRow> dr1 = dtMaths.Rows.Cast<DataRow>().AsQueryable();
-            //            IQueryable<DataRow> dr2 = dtEnglish.Rows.Cast<DataRow>().AsQueryable();
-
-
-            //            System.Data.DataView view = new System.Data.DataView(dtMaths);
-            //            System.Data.DataTable selected = view.ToTable("Selected", false, dtMaths.Columns[0].ToString(),
-            //                dtMaths.Columns[2].ToString());
-            //            var dtOnlyMaths = dtMaths.Rows.Cast<DataRow>().Except(dtEnglish.Rows.Cast<DataRow>());
-
-        }
     }
 
     public class MySqlDataBaseConnector : Database
     {
+        private int port = 0;
+        private string LocalInstance = "";
         public MySqlDataBaseConnector() : base()
         {
-            DataConnectionString = "SERVER=localhost;UID='root';" + "PASSWORD='';";
         }
 
-        public override bool ConnectToServer()
+        public override bool ConnectToServer(int port = Int32.MinValue)
         {
             try
             {
+                if (port == Int32.MinValue)
+                    DataConnectionString = "SERVER=localhost;UID='root';PASSWORD='user';Pooling=True";
+                else
+                {
+                    Thread.Sleep(1000);
+                    DataConnectionString = $"SERVER=localhost;Port={port};UID='root';PASSWORD='user';Pooling=True";
+                }
                 connection = new MySqlConnection(DataConnectionString);
                 connection.Open();
                 return true;
             }
-            catch (Exception)
+            catch (Exception e)
             {
                 return false;
             }
         }
 
-        public override bool ConnectToDatabase(string databaseName)
+        public override bool ConnectToDatabase(string databaseName, int port = Int32.MinValue)
         {
             try
             {
-                DataConnectionString = "SERVER=localhost;DATABASE=" + databaseName +
-                     ";UID=root; PASSWORD='';";
+                if (port == Int32.MinValue)
+                    DataConnectionString = "SERVER=localhost;DATABASE=" + databaseName +
+                         ";UID=root;PASSWORD='user';Pooling=True";
+                else
+                    DataConnectionString = $"SERVER=localhost;Port={port};DATABASE={databaseName};UID='root';PASSWORD='user';Pooling=True";
                 connection = new MySqlConnection(DataConnectionString);
                 connection.Open();
                 return true;
@@ -564,12 +658,67 @@ namespace DbComparer
             }
 
         }
-
-        /// <summary>
-        /// TODO
-        /// </summary>
-        /// <returns></returns>
+        
         public override bool ConnectToFile(string location = null)
+        {
+            try
+            {
+                port = AdditionalFunctions.GetAvailablePort(3306);
+                var DestinationPath = Path.GetDirectoryName(location) + $"\\data{port}\\";
+                LocalInstance = Directory.GetParent(DestinationPath).Parent.Parent.Parent.FullName + "\\MySQLInstance\\data\\";
+                //Now Create all of the directories
+                foreach (string dirPath in Directory.GetDirectories(LocalInstance, "*",
+                    SearchOption.AllDirectories))
+                    Directory.CreateDirectory(dirPath.Replace(LocalInstance, DestinationPath));
+                //Copy all the files & Replaces any files with the same name
+                foreach (string newPath in Directory.GetFiles(LocalInstance, "*.*",
+                    SearchOption.AllDirectories))
+                    File.Copy(newPath, newPath.Replace(LocalInstance, DestinationPath), true);
+                string fileName = Directory.GetParent(LocalInstance).Parent.FullName + "\\my.ini";
+                var file = File.ReadAllText(fileName);
+                file = file.Replace("MY_PORT", port.ToString());
+                file = file.Replace("MY_LOCATION", DestinationPath.Replace("\\", "/"));
+                File.WriteAllText(DestinationPath + @"\my.ini", file);
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = Directory.GetParent(LocalInstance).Parent.FullName + @"\bin\mysqld.exe",
+                    Arguments = $"--install MySQL{port} --defaults-file=" + '"' + DestinationPath.Replace(@"\", "/") + "my.ini" + '"',
+                    Verb = "runas",
+                    UseShellExecute = true
+                }).WaitForExit();
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "net.exe",
+                    Arguments = $"start MYSQL{port}",
+                    Verb = "runas",
+                    UseShellExecute = true
+                }).WaitForExit();
+
+                if (ConnectToServer(port))
+                {
+                    var DbList = GetDatabasesList();
+                    MySqlScript script = new MySqlScript((connection as MySqlConnection), File.ReadAllText(location));
+                    script.Delimiter = ";";
+                    Stopwatch sw = new Stopwatch();
+                    sw.Start();
+                    script.Execute();
+                    sw.Stop();
+                    var NewDbName = GetDatabasesList().Except(DbList).First();
+                    ConnectToDatabase(NewDbName, port);
+                    SelectedDatabase = NewDbName;
+                    ConType = Connection_Type.File;
+                    return true;
+                }
+                throw new Exception();
+            }
+            catch (Exception e)
+            {
+                return false;
+            }
+        }
+
+        public override bool RemoteConnection(string ip, string port, string db = null)
         {
             throw new NotImplementedException();
         }
@@ -603,7 +752,13 @@ namespace DbComparer
         {
             try
             {
-                ConnectToDatabase(database);
+
+                if (database != null)
+                {
+                    var connected = ConnectToDatabase(database);
+                    if (!connected)
+                        return null;
+                }
                 MySqlCommand command = (connection as MySqlConnection).CreateCommand();
                 command.CommandText = "SHOW TABLES;";
                 using (MySqlDataReader Reader = command.ExecuteReader())
@@ -628,9 +783,20 @@ namespace DbComparer
             try
             {
                 String[] columnRestrictions = new String[4];
-                columnRestrictions[2] = tableName;
+                if (tableName == null)
+                    columnRestrictions[2] = SelectedTable;
+                else
+                    columnRestrictions[2] = tableName;
 
                 DataTable departmentIDSchemaTable = connection.GetSchema("Columns", columnRestrictions);
+                TableColumns.Clear();
+                DataView dv = departmentIDSchemaTable.DefaultView;
+                departmentIDSchemaTable.DefaultView.Sort = "ORDINAL_POSITION Asc";
+                var SortedView = dv.ToTable();
+                foreach (DataRow row in SortedView.Rows)
+                {
+                    TableColumns.Add(new Column(row));
+                }
                 return departmentIDSchemaTable;
             }
             catch (Exception ex)
@@ -662,6 +828,23 @@ namespace DbComparer
             if (connection != null && connection.State != ConnectionState.Closed)
             {
                 connection.Close();
+                if (ConType == Connection_Type.File)
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "net.exe",
+                        Arguments = $"stop MYSQL{port}",
+                        Verb = "runas",
+                        UseShellExecute = true
+                    }).WaitForExit();
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = Directory.GetParent(LocalInstance).Parent.FullName + @"\bin\mysqld.exe",
+                        Arguments = $"--remove MYSQL{port}",
+                        Verb = "runas",
+                        UseShellExecute = true
+                    }).WaitForExit();
+                }
                 MySqlConnection.ClearPool(connection as MySqlConnection);
             }
         }

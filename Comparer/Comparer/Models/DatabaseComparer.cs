@@ -117,6 +117,39 @@ namespace DBTest
             return true;
         }
 
+        public void DeleteDirectory(string path, bool recursive)
+        {
+            if (path == null) path = Folder; 
+            if (recursive)
+            {
+                var subfolders = Directory.GetDirectories(path);
+                foreach (var s in subfolders)
+                {
+                    DeleteDirectory(s, recursive);
+                }
+            }
+            var files = Directory.GetFiles(path);
+            foreach (var f in files)
+            {
+                try
+                {
+                    var attr = File.GetAttributes(f);
+                    if ((attr & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
+                    {
+                        File.SetAttributes(f, attr ^ FileAttributes.ReadOnly);
+                    }
+                    File.Delete(f);
+                }
+                catch (IOException)
+                {
+                }
+            }
+
+            // At this point, all the files and sub-folders have been deleted.
+            // So we delete the empty folder using the OOTB Directory.Delete method.
+            Directory.Delete(path);
+        }
+
         /// <summary>
         /// Читає дані з 1-ї і 2-ї БД
         /// Запити генеруються на основі SelectedColumns
@@ -218,7 +251,11 @@ namespace DBTest
             var list1 = FirstDatabase.TableColumns.Where(item => item.ISKey).Select(i => i.Position).ToArray();
             var list2 = SecondDatabase.TableColumns.Where(item => item.ISKey).Select(i => i.Position).ToArray();
             if (list1.Length!=list2.Length)
+            {
+                items.Add(3, new List<string[]>());
+                items.Add(4, new List<string[]>());
                 return;
+            }
             var first = items[1].KeyPlusDataSelection(list1);
             var second = items[2].KeyPlusDataSelection(list2);
             var temp = new List<string[]>();
