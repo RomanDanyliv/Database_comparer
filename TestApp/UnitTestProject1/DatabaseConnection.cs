@@ -15,16 +15,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Threading.Tasks;
 using Comparer.Models;
-using DBTest;
-using Jdforsythe.MySQLConnection;
-using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
-using Microsoft.EntityFrameworkCore.Query.Expressions;
 using MySql.Data.MySqlClient;
-using ObjectsComparer;
 
 namespace DbComparer
 {
@@ -232,7 +224,7 @@ namespace DbComparer
         {
             string[] Result = new string[selected.Length];
             int[] arr = selected.Select(i => Int32.Parse(i)).ToArray();
-            string columns = "(" + SelectedColumns.Select(i => i.Name).Join(",") + ")";
+            string columns = "(" + SelectedColumns.Select(i => i.Name) + ")";
             for (int i = 0; i < selected.Length; i++)
             {
                 string Insert = "INSERT INTO "
@@ -306,32 +298,9 @@ namespace DbComparer
         /// </summary>
         /// <param name="file"></param>
         /// <returns></returns>
-        public static Database_Type GetDBType(IFormFile file)
+        public static Database_Type GetDBType(string file)
         {
-            string ext = Path.GetExtension(file.FileName).Replace(".", "").ToLower();
-            switch (ext)
-            {
-                case "mdf":
-                    {
-                        return Database_Type.SqlServer; break;
-                    }
-                case "sql":
-                    {
-                        return Database_Type.MySql; break;
-                    }
-                case "xml":
-                    {
-                        return Database_Type.XML; break;
-                    }
-                case "db":
-                    {
-                        return Database_Type.SQLite; break;
-                    }
-                default:
-                    {
-                        return Database_Type.NONE; break;
-                    }
-            }
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -339,47 +308,9 @@ namespace DbComparer
         /// </summary>
         /// <param name="file"></param>
         /// <returns></returns>
-        public static Database InitializeType(IFormFile file)
+        public static Database InitializeType(string file)
         {
-
-            Database.Database_Type type = Database.GetDBType(file);
-            switch (type)
-            {
-                case Database_Type.MySql:
-                    { return new MySqlDataBaseConnector() { DbType = Database_Type.MySql }; break; }
-                case Database_Type.SqlServer:
-                    { return new SqlDataBaseConnector() { DbType = Database_Type.SqlServer }; ; break; }
-                case Database_Type.SQLite:
-                    { return new SqlDataBaseConnector() { DbType = Database_Type.SQLite }; ; break; }
-                default:
-                    {
-                        return null;
-                        break;
-                    }
-            }
-        }
-
-        /// <summary>
-        /// Визначає тип БД та виконує присвоєння
-        /// </summary>
-        /// <param name="file"></param>
-        /// <returns></returns>
-        public static Database InitializeType(string type)
-        {
-            switch (type)
-            {
-                case "MySQL":
-                    { return new MySqlDataBaseConnector() { DbType = Database_Type.MySql }; break; }
-                case "SQL Server":
-                    { return new SqlDataBaseConnector() { DbType = Database_Type.SqlServer }; ; break; }
-                case "SQLite":
-                    { return new SqlDataBaseConnector() { DbType = Database_Type.SQLite }; ; break; }
-                default:
-                    {
-                        return null;
-                        break;
-                    }
-            }
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -389,8 +320,8 @@ namespace DbComparer
         {
             SqlServer,
             MySql,
-            Oracle,
             SQLite,
+            Oracle,
             XML,
             NONE
         }
@@ -423,31 +354,30 @@ namespace DbComparer
             {
                 switch (type)
                 {
-                    case Database_Type.SqlServer:
-                    case Database_Type.MySql:
-                        {
-                            var array = dr.ItemArray;
-                            Position = Int32.Parse(array[4].ToString()) - 1; //Позиція
-                            Name = array[3].ToString(); //Імя
-                            Type = array[7].ToString(); //Тип
-                            Length = array[8].ToString(); //Довжина
-                            if (array[15] != "PRI")
-                                ISKey = false; //Ключ
-                            else ISKey = true;
+                    case Database_Type.SqlServer : case Database_Type.MySql :
+                    {
+                        var array = dr.ItemArray;
+                        Position = Int32.Parse(array[4].ToString()) - 1;//Позиція
+                        Name = array[3].ToString();//Імя
+                        Type = array[7].ToString();//Тип
+                        Length = array[8].ToString();//Довжина
+                        if (array[15] != "PRI")
+                            ISKey = false; //Ключ
+                        else ISKey = true;
                             break;
-                        }
+                    }
                     case Database_Type.SQLite:
-                        {
-                            var array = dr.ItemArray;
-                            Position = Int32.Parse(array[6].ToString()); //Позиція
-                            Name = array[3].ToString(); //Імя
-                            Type = array[11].ToString(); //Тип
-                            Length = array[13].ToString(); //Довжина
-                            if (array[27].ToString() != "True")
-                                ISKey = false; //Ключ
-                            else ISKey = true;
+                    {
+                        var array = dr.ItemArray;
+                        Position = Int32.Parse(array[6].ToString());//Позиція
+                        Name = array[3].ToString();//Імя
+                        Type = array[11].ToString();//Тип
+                        Length = array[13].ToString();//Довжина
+                        if (array[27].ToString() != "True")
+                            ISKey = false; //Ключ
+                        else ISKey = true;
                             break;
-                        }
+                    }
                 }
             }
         }
@@ -647,7 +577,6 @@ namespace DbComparer
         private string LocalInstance = "";
         public MySqlDataBaseConnector() : base()
         {
-            DbType = Database_Type.MySql;
         }
 
         public override bool ConnectToServer(int port = Int32.MinValue)
@@ -993,7 +922,7 @@ namespace DbComparer
             if (connection != null && connection.State != ConnectionState.Closed)
             {
                 connection.Close();
-                SQLiteConnection.ClearPool(connection as SQLiteConnection);
+                SQLiteConnection.ClearPool(connection as SQLiteConnection);  
             }
         }
     }
