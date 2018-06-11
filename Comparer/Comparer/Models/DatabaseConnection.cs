@@ -58,7 +58,7 @@ namespace DbComparer
         /// <param name="port">Порт</param>
         /// <param name="db">Назва БД (за потребою)</param>
         /// <returns></returns>
-        bool RemoteConnection(string ip, string port, string db = null);
+        bool RemoteConnection(Dictionary<string, string> dictionary);
 
         /// <summary>
         /// Повертає список баз даних на сервері
@@ -195,7 +195,7 @@ namespace DbComparer
         public abstract bool ConnectToServer(int port = Int32.MinValue);
         public abstract bool ConnectToDatabase(string databaseName, int port = Int32.MinValue);
         public abstract bool ConnectToFile(string location = null);
-        public abstract bool RemoteConnection(string ip, string port, string db = null);
+        public abstract bool RemoteConnection(Dictionary<string, string> dictionary);
         public abstract List<string> GetDatabasesList();
         public abstract List<string> GetTablesList(string database = null);
         public abstract DataTable GetTableInfo(string tableName = null);
@@ -263,7 +263,7 @@ namespace DbComparer
         {
             string[] Result = new string[selected.Length];
             int[] arr = selected.Select(i => Int32.Parse(i)).ToArray();
-            for (int i = 0; i < selected.Length; i++)
+            for (int i = 0; i < stringsTo.Count; i++)
             {
                 string Update = "UPDATE "
                                 + SelectedTable
@@ -371,10 +371,12 @@ namespace DbComparer
             {
                 case "MySQL":
                     { return new MySqlDataBaseConnector() { DbType = Database_Type.MySql }; break; }
-                case "SQL Server":
+                case "SQLServer":
                     { return new SqlDataBaseConnector() { DbType = Database_Type.SqlServer }; ; break; }
                 case "SQLite":
                     { return new SQLiteDatabaseConnector() { DbType = Database_Type.SQLite }; ; break; }
+                case "PostgreSQL":
+                    { return new PostGreSQLDatabaseConnector() { DbType = Database_Type.PostgreSQL }; ; break; }
                 default:
                     {
                         return null;
@@ -393,6 +395,7 @@ namespace DbComparer
             Oracle,
             SQLite,
             XML,
+            PostgreSQL,
             NONE
         }
 
@@ -449,6 +452,16 @@ namespace DbComparer
                             else ISKey = true;
                             break;
                         }
+                    case Database_Type.PostgreSQL:
+                        {
+                            var array = dr.ItemArray;
+                            Position = Int32.Parse(array[4].ToString()) - 1; //Позиція
+                            Name = array[3].ToString(); //Імя
+                            Type = array[7].ToString(); //Тип
+                            Length = array[8].ToString(); //Довжина
+                            ISKey = false; //Ключ
+                            break;
+                        }
                 }
             }
         }
@@ -482,8 +495,9 @@ namespace DbComparer
         {
             try
             {
-                DataConnectionString =
-                    "Data Source=.; Integrated Security=True; Initial Catalog =" + databaseName + ";";
+
+                if (databaseName != null)
+                    DataConnectionString += "Initial Catalog =" + databaseName + ";"; ;
                 connection = new SqlConnection(DataConnectionString);
                 connection.Open();
             }
@@ -514,14 +528,16 @@ namespace DbComparer
             }
         }
 
-        public override bool RemoteConnection(string ip, string port, string db = null)
+        public override bool RemoteConnection(Dictionary<string, string> param)
         {
             try
             {
                 DataConnectionString =
-                    $"Data Source={ip}\\SQLEXPRESS,{port};Network Library=DBMSSOCN;User ID=sa;Password=password";
+                    $"Data Source={param["ip"]},{param["port"]};Network Library=DBMSSOCN;User ID={param["user"]};Password={param["pass"]};Connect Timeout=30;";
+                DataConnectionString += "Initial Catalog =" + param["db"] + ";";
                 connection = new SqlConnection(DataConnectionString);
                 connection.Open();
+                ConType = Connection_Type.Remote;
                 return true;
             }
             catch (Exception e)
@@ -534,20 +550,16 @@ namespace DbComparer
         {
             List<string> list = new List<string>();
 
-            using (connection)
+            using (SqlCommand cmd = new SqlCommand("SELECT name from sys.databases", (connection as SqlConnection)))
             {
-                using (SqlCommand cmd = new SqlCommand("SELECT name from sys.databases", (connection as SqlConnection)))
+                using (IDataReader dr = cmd.ExecuteReader())
                 {
-                    using (IDataReader dr = cmd.ExecuteReader())
+                    while (dr.Read())
                     {
-                        while (dr.Read())
-                        {
-                            list.Add(dr[0].ToString());
-                        }
+                        list.Add(dr[0].ToString());
                     }
                 }
             }
-
             return list;
         }
 
@@ -676,11 +688,10 @@ namespace DbComparer
         {
             try
             {
-                if (port == Int32.MinValue)
-                    DataConnectionString = "SERVER=localhost;DATABASE=" + databaseName +
-                         ";UID=root;PASSWORD='user';Pooling=True";
-                else
-                    DataConnectionString = $"SERVER=localhost;Port={port};DATABASE={databaseName};UID='root';PASSWORD='user';Pooling=True";
+                if (databaseName != null)
+                    DataConnectionString += $"DATABASE={databaseName};";
+                if (port != Int32.MinValue)
+                    DataConnectionString += $"Port={port};";
                 connection = new MySqlConnection(DataConnectionString);
                 connection.Open();
                 return true;
@@ -753,17 +764,32 @@ namespace DbComparer
             }
         }
 
-        public override bool RemoteConnection(string ip, string port, string db = null)
+        public override bool RemoteConnection(Dictionary<string, string> param)
         {
-            throw new NotImplementedException();
+            try
+            {
+                DataConnectionString =
+                                       $"Server={param["ip"]};" +
+                                       $"User = {param["user"]}; Password = {param["pass"]};";
+
+                DataConnectionString += $"DATABASE={param["db"]};";
+                connection = new MySqlConnection(DataConnectionString);
+                connection.Open();
+                ConType = Connection_Type.Remote;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                return false;
+            }
+
+            return true;
         }
 
         public override List<string> GetDatabasesList()
         {
             try
             {
-                if (connection == null || connection.State != ConnectionState.Open)
-                    ConnectToServer();
                 MySqlCommand command = (connection as MySqlConnection).CreateCommand();
                 command.CommandText = "SHOW DATABASES;";
                 using (MySqlDataReader Reader = command.ExecuteReader())
@@ -887,6 +913,7 @@ namespace DbComparer
         }
     }
 
+
     public class SQLiteDatabaseConnector : Database
     {
         public SQLiteDatabaseConnector() : base()
@@ -919,7 +946,7 @@ namespace DbComparer
             }
         }
 
-        public override bool RemoteConnection(string ip, string port, string db = null)
+        public override bool RemoteConnection(Dictionary<string, string> dictionary)
         {
             throw new NotImplementedException();
         }
@@ -1005,6 +1032,12 @@ namespace DbComparer
 
     public class PostGreSQLDatabaseConnector : Database
     {
+        private string OnServerName = "";
+
+        ///IMPORTANT!!!!!!
+        string path_to_bin = @"C:\Program Files\PostgreSQL\10\bin";
+        ///IMPORTANT!!!!!!
+
         public PostGreSQLDatabaseConnector() : base()
         {
             DataConnectionString =
@@ -1046,41 +1079,42 @@ namespace DbComparer
 
         public override bool ConnectToFile(string location = null)
         {
-            ///IMPORTANT!!!!!!
-            var path_to_bin = @"C:\Program Files\PostgreSQL\10\bin\";
-            ///IMPORTANT!!!!!!
             try
             {
                 var db_list = GetDatabasesList();
-                var name = "";
+                OnServerName = "";
                 for (int i = 0; i < 65536; i++)
                 {
                     if (!db_list.Contains("PostUser" + i))
                     {
-                        name = "PostUser" + i;
+                        OnServerName = "PostUser" + i;
                         break;
                     }
                 }
+                string DestinationPath = Path.GetDirectoryName(location);
+                var LocalInstance = Directory.GetParent(DestinationPath).Parent.FullName + @"\PostgreSQL\";
+                string fileName = LocalInstance + "Import.bat";
+                var file = File.ReadAllText(fileName);
+                file = file.Replace("FROM", path_to_bin);
+                file = file.Replace("IMPORT_PARAM", $"-U root {OnServerName} < {location}");
+                File.WriteAllText(DestinationPath + $"\\{OnServerName}.bat", file);
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = path_to_bin + @"\createdb.exe",
-                    Arguments = $"-U root {name}",
+                    Arguments = $"-U root {OnServerName}",
                     Verb = "runas",
                     UseShellExecute = true,
                     WindowStyle = ProcessWindowStyle.Hidden
                 }).WaitForExit();
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = path_to_bin + @"\pg_dump.exe",
-                    Arguments = $"-U root {name} < {location}",
+                    FileName = DestinationPath + $"\\{OnServerName}.bat",
                     Verb = "runas",
-                    UseShellExecute = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
+                    UseShellExecute = true
                 }).WaitForExit();
-                ConnectToDatabase(name);
-                connection = new SQLiteConnection($"Data Source={location};Version=3;");
-                connection.Open();
-                ConType = Connection_Type.File;
+                if (ConnectToDatabase(OnServerName))
+                    ConType = Connection_Type.File;
+                else return false;
                 return true;
             }
             catch (Exception e)
@@ -1090,7 +1124,7 @@ namespace DbComparer
 
         }
 
-        public override bool RemoteConnection(string ip, string port, string db = null)
+        public override bool RemoteConnection(Dictionary<string, string> dictionary)
         {
             throw new NotImplementedException();
         }
@@ -1192,6 +1226,14 @@ namespace DbComparer
         {
             if (connection != null && connection.State != ConnectionState.Closed)
             {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = path_to_bin + @"\dropdb.exe",
+                    Arguments = $"-U root {OnServerName}",
+                    Verb = "runas",
+                    UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                }).WaitForExit();
                 connection.Close();
             }
         }
