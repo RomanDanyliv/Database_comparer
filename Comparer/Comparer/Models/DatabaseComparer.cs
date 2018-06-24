@@ -37,8 +37,8 @@ namespace DBTest
         /// </summary>
         public DatabaseComparer()
         {
-            FirstData = null;
-            SecondData = null;
+            FirstData = new List<string[]>();
+            SecondData = new List<string[]>();
             FirstDatabase = null;
             SecondDatabase = null;
             Folder = null;
@@ -157,6 +157,8 @@ namespace DBTest
                 {
                     FirstData = FirstDatabase.Read(FirstDatabase.BuildSelectQuery(),
                         FirstDatabase.FullStringArraySelector);
+                    if (FirstData==null)
+                        FirstData = new List<string[]>();
                     AdditionalInfo.Rows.Add(1, FirstData.Count);
                 });
                 sw.Start();
@@ -165,6 +167,8 @@ namespace DBTest
                 {
                     SecondData = SecondDatabase.Read(SecondDatabase.BuildSelectQuery(),
                         SecondDatabase.FullStringArraySelector);
+                    if (SecondData == null)
+                        SecondData = new List<string[]>();
                     AdditionalInfo.Rows.Add(2, SecondData.Count);
                 });
                 SecondTask.Start();

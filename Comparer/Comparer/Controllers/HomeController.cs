@@ -116,6 +116,21 @@ namespace Comparer.Controllers
                 return PartialView("_Error", ex);
             }
         }
+        [HttpPost]
+        public IActionResult SmallTableInfo()
+        {
+            try
+            {
+                if ((db.FirstDatabase.connection == null || db.FirstDatabase.connection.State != ConnectionState.Open) ||
+                    (db.SecondDatabase.connection == null || db.SecondDatabase.connection.State != ConnectionState.Open))
+                    return PartialView("_Error");
+                return PartialView("_SmallTableInfo", db);
+            }
+            catch (Exception ex)
+            {
+                return PartialView("_Error", ex);
+            }
+        }
 
         /// <summary>
         /// Часткове представлення
@@ -170,13 +185,18 @@ namespace Comparer.Controllers
                 foreach (var column in db.SecondDatabase.TableColumns)
                     if (column.Name == array[i] &&
                         AdditionalFunctions.IsTypesComparable(column.Type, db.FirstDatabase.TableColumns[i].Type))
+                    {
                         db.SecondDatabase.SelectedColumns.Add(column);
+                        break;
+                    }
             }
             if (db.FirstDatabase.SelectedColumns.Count !=
                 db.SecondDatabase.SelectedColumns.Count)
                 return PartialView("_Error");
             if (db.ReadDataFromDb())
+            {
                 db.ComparingResult = db.CompareFullData();
+            }
             else return PartialView("_Error");
             return PartialView("_Comparing", db);
         }
